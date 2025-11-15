@@ -1,23 +1,29 @@
 import { useEffect } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import type { User } from '../types';
 
-// Auto-create a demo user for the hackathon demo
+// Check localStorage for saved user on app load
 export const useAutoLogin = () => {
   const { user, setUser } = useAppStore();
 
   useEffect(() => {
     if (!user) {
-      // Create a demo user automatically
-      const demoUser = {
-        id: 'demo_user_001',
-        email: 'demo@strategyevolve.ai',
-        name: 'Demo User',
-        fastino_user_id: 'demo_fastino_001',
-        created_at: new Date(),
-      };
-      
-      setUser(demoUser);
-      console.log('Auto-logged in as demo user');
+      // Check localStorage for saved user
+      const savedUser = localStorage.getItem('user');
+      if (savedUser) {
+        try {
+          const userData: User = JSON.parse(savedUser);
+          // Convert created_at string back to Date if needed
+          if (userData.created_at && typeof userData.created_at === 'string') {
+            userData.created_at = new Date(userData.created_at);
+          }
+          setUser(userData);
+          console.log('Restored user from localStorage:', userData.email);
+        } catch (error) {
+          console.error('Failed to parse saved user:', error);
+          localStorage.removeItem('user');
+        }
+      }
     }
   }, [user, setUser]);
 };

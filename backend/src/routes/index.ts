@@ -3,6 +3,11 @@ import { fastinoService } from '../services/fastino';
 import { linkUpService } from '../services/linkup';
 import { strategyService, Strategy } from '../services/strategy';
 import { evolutionService } from '../services/evolution';
+import { evolutionServiceV2 } from '../services/evolution_v2';
+import { userModel } from '../models/user';
+import { strategyModel } from '../models/strategy';
+import { tradeModel } from '../models/trade';
+import { evolutionModel } from '../models/evolution';
 import demoRoutes from './demo';
 import quickDemoRoutes from './quickdemo';
 
@@ -12,65 +17,50 @@ const router = express.Router();
 router.use('/demo', demoRoutes);
 router.use('/quickdemo', quickDemoRoutes);
 
-// In-memory storage (replace with database in production)
-const users: Map<string, any> = new Map();
-const strategies: Map<string, Strategy> = new Map();
-const trades: Map<string, any> = new Map();
-const evolutionEvents: Map<string, any> = new Map();
-
-// Initialize base strategy
-const baseStrategy: Strategy = {
-  id: 'strategy_base_001',
-  name: 'MA Crossover + RSI',
-  type: 'base',
-  parameters: {
-    ma_short: 20,
-    ma_long: 50,
-    rsi_threshold: 30,
-    position_size: 0.1,
-  },
-  metrics: {
-    sharpe_ratio: 0.8,
-    total_return: 12.5,
-    max_drawdown: -18.2,
-    win_rate: 54.3,
-    avg_trade_duration: 12.5,
-    num_trades: 45,
-  },
-  created_at: new Date(),
-};
-
-strategies.set(baseStrategy.id, baseStrategy);
-
 // ============= AUTH & USER ROUTES =============
 router.post('/auth/register', async (req, res) => {
   try {
     const { email, name } = req.body;
     const userId = `user_${Date.now()}`;
 
-    // Register with Fastino
-    const fastinoUser = await fastinoService.registerUser(email, userId, name);
+    // Check if email already exists
+    const existingUser = await userModel.findByEmail(email);
+    if (existingUser) {
+      return res.status(400).json({ success: false, error: 'Email already registered' });
+    }
 
-    const user = {
+    // Try to register with Fastino (optional - don't fail if this errors)
+    let fastinoUserId = null;
+    try {
+      const fastinoUser = await fastinoService.registerUser(email, userId, name);
+      fastinoUserId = fastinoUser.user_id;
+      console.log('✅ User registered with Fastino:', userId);
+    } catch (fastinoError: any) {
+      console.log('⚠️  Fastino registration failed (user still created):', fastinoError.message);
+      // Continue without Fastino - user can still use the app
+    }
+
+    // Create user in database
+    const user = await userModel.create({
       id: userId,
       email,
       name,
-      fastino_user_id: fastinoUser.user_id,
+      fastino_user_id: fastinoUserId,
       created_at: new Date(),
-    };
+    });
 
-    users.set(userId, user);
-
+    console.log('✅ User registered:', userId, email);
     res.json({ success: true, data: user });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Registration error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Registration failed' });
   }
 });
 
 router.post('/auth/login', async (req, res) => {
   try {
     const { email } = req.body;
-    const user = Array.from(users.values()).find((u) => u.email === email);
+    const user = await userModel.findByEmail(email);
 
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
@@ -85,7 +75,7 @@ router.post('/auth/login', async (req, res) => {
 router.get('/user/:userId/profile', async (req, res) => {
   try {
     const { userId } = req.params;
-    const user = users.get(userId);
+    let user = await userModel.findById(userId);
 
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
@@ -94,10 +84,14 @@ router.get('/user/:userId/profile', async (req, res) => {
     // Get Fastino summary
     try {
       const summary = await fastinoService.getSummary(userId, 500);
-      user.profile_summary = summary.summary;
+      user = await userModel.update(userId, { profile_summary: summary.summary });
     } catch (error) {
       // User might not have enough data yet
-      user.profile_summary = 'No profile data yet. Start trading to build your profile.';
+      if (!user.profile_summary) {
+        user = await userModel.update(userId, { 
+          profile_summary: 'No profile data yet. Start trading to build your profile.' 
+        });
+      }
     }
 
     res.json({ success: true, data: user });
@@ -109,8 +103,20 @@ router.get('/user/:userId/profile', async (req, res) => {
 // ============= STRATEGY ROUTES =============
 router.get('/strategies', async (req, res) => {
   try {
-    const allStrategies = Array.from(strategies.values());
-    res.json({ success: true, data: allStrategies });
+    const { userId } = req.query;
+    
+    let strategies;
+    if (userId) {
+      // Return user-specific strategies
+      strategies = await strategyModel.findByUser(userId as string);
+      console.log(`📊 Fetched ${strategies.length} strategies for user ${userId}`);
+    } else {
+      // Return all strategies (for admin/debugging)
+      strategies = await strategyModel.findAll();
+      console.log(`📊 Fetched ${strategies.length} strategies (all users)`);
+    }
+    
+    res.json({ success: true, data: strategies });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -118,7 +124,7 @@ router.get('/strategies', async (req, res) => {
 
 router.get('/strategies/:id', async (req, res) => {
   try {
-    const strategy = strategies.get(req.params.id);
+    const strategy = await strategyModel.findById(req.params.id);
 
     if (!strategy) {
       return res.status(404).json({ success: false, error: 'Strategy not found' });
@@ -133,14 +139,16 @@ router.get('/strategies/:id', async (req, res) => {
 router.post('/strategies/generate', async (req, res) => {
   try {
     const { baseStrategyId } = req.body;
-    const baseStrat = strategies.get(baseStrategyId || 'strategy_base_001');
+    const baseStrat = await strategyModel.findById(baseStrategyId || 'strategy_base_001');
 
     if (!baseStrat) {
       return res.status(404).json({ success: false, error: 'Base strategy not found' });
     }
 
     const variants = strategyService.generateVariants(baseStrat, 10);
-    variants.forEach((v) => strategies.set(v.id, v));
+    for (const variant of variants) {
+      await strategyModel.create(variant);
+    }
 
     res.json({ success: true, data: variants });
   } catch (error: any) {
@@ -151,7 +159,7 @@ router.post('/strategies/generate', async (req, res) => {
 router.post('/strategies/backtest', async (req, res) => {
   try {
     const { strategyId } = req.body;
-    const strategy = strategies.get(strategyId);
+    const strategy = await strategyModel.findById(strategyId);
 
     if (!strategy) {
       return res.status(404).json({ success: false, error: 'Strategy not found' });
@@ -160,10 +168,9 @@ router.post('/strategies/backtest', async (req, res) => {
     const marketData = strategyService.generateSampleData(252);
     const metrics = strategyService.backtest(strategy, marketData);
 
-    strategy.metrics = metrics;
-    strategies.set(strategy.id, strategy);
+    const updatedStrategy = await strategyModel.update(strategyId, { metrics });
 
-    res.json({ success: true, data: strategy });
+    res.json({ success: true, data: updatedStrategy });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -172,7 +179,7 @@ router.post('/strategies/backtest', async (req, res) => {
 // ============= EVOLUTION ROUTES =============
 router.post('/evolution/optimize', async (req, res) => {
   try {
-    const baseStrat = strategies.get('strategy_base_001');
+    const baseStrat = await strategyModel.findById('strategy_base_001');
 
     if (!baseStrat) {
       return res.status(404).json({ success: false, error: 'Base strategy not found' });
@@ -180,8 +187,8 @@ router.post('/evolution/optimize', async (req, res) => {
 
     const { strategy, event } = await evolutionService.optimizeQuantitative(baseStrat);
 
-    strategies.set(strategy.id, strategy);
-    evolutionEvents.set(event.id, event);
+    await strategyModel.create(strategy);
+    await evolutionModel.create(event);
 
     res.json({ success: true, data: strategy, event });
   } catch (error: any) {
@@ -193,72 +200,89 @@ router.post('/evolution/synthesize', async (req, res) => {
   try {
     const { userId } = req.body;
     
-    // For demo: Create a mock evolved strategy with improved metrics
-    const evolvedStrategy = {
-      id: `strategy_evolved_${Date.now()}`,
-      name: 'Hybrid Evolved Strategy',
-      type: 'hybrid' as const,
-      parameters: {
-        ma_short: 18,
-        ma_long: 48,
-        rsi_threshold: 27,
-        position_size: 0.12,
-      },
-      metrics: {
-        sharpe_ratio: 1.62,
-        total_return: 19.8,
-        max_drawdown: -12.5,
-        win_rate: 68.7,
-        avg_trade_duration: 10.2,
-        num_trades: 52,
-      },
-      created_at: new Date(),
-      parent_id: 'strategy_base_001',
-    };
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
 
-    const evolutionEvent = {
+    console.log(`🚀 Starting V2 evolution with real data for user: ${userId}`);
+
+    // Get user and base strategy
+    const user = await userModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Try to get user-specific base strategy, fallback to global base strategy
+    let baseStrategy = await strategyModel.findBaseByUser(userId);
+    if (!baseStrategy) {
+      console.log(`⚠️  No user-specific base strategy, using global base strategy`);
+      baseStrategy = await strategyModel.findById('strategy_base_001');
+    }
+    
+    if (!baseStrategy) {
+      return res.status(404).json({ success: false, error: 'No base strategy found' });
+    }
+
+    // Run comprehensive evolution with:
+    // - Real stock data from Alpha Vantage/Finnhub
+    // - Live sentiment from LinkUp
+    // - Behavioral insights from Fastino
+    const { strategy: evolvedStrategy, event } = await evolutionServiceV2.optimizeAndEvolveStrategy(
+      userId,
+      baseStrategy
+    );
+
+    console.log(`✅ V2 Evolution complete: Sharpe ${evolvedStrategy.metrics?.sharpe_ratio.toFixed(3)}, Return ${evolvedStrategy.metrics?.total_return.toFixed(2)}%`);
+
+    // Save evolved strategy
+    const savedEvolved = await strategyModel.create({
+      id: `hybrid_${Date.now()}`,
+      user_id: userId,
+      name: `Evolved Strategy ${new Date().toISOString()}`,
+      type: 'hybrid',
+      parameters: evolvedStrategy.parameters,
+      metrics: evolvedStrategy.metrics || {},
+      created_at: new Date(),
+    });
+
+    // Save evolution event
+    await evolutionModel.create({
       id: `evolution_${Date.now()}`,
-      type: 'hybrid' as const,
-      old_strategy_id: 'strategy_base_001',
-      new_strategy_id: evolvedStrategy.id,
-      improvement: {
-        sharpe_delta: 0.82,
-        return_delta: 7.3,
-      },
-      insights: `Hybrid strategy evolved through three loops:
-        
-1. Quantitative Optimization: Optimized MA periods (20/50 → 18/48) and RSI threshold (30 → 27), improving Sharpe by +0.35
-
-2. Behavioral Learning (Fastino): Discovered user has 75% win rate during earnings plays vs 50% base strategy. User reduces position size 50% before Fed announcements.
-
-3. Market Context (LinkUp): Current market shows low volatility (VIX 18), bullish momentum in tech sector. Optimal conditions for increased position sizing.
-
-Result: Combined improvements yield Sharpe 1.62 (+102%), Return 19.8% (+58%)`,
+      user_id: userId,
+      type: event.type,
+      old_strategy_id: baseStrategy.id,
+      new_strategy_id: savedEvolved.id,
+      improvement: event.improvement,
+      insights: event.insights,
       created_at: new Date(),
-    };
+    });
 
-    // Save to storage
-    strategies.set(evolvedStrategy.id, evolvedStrategy);
-    evolutionEvents.set(evolutionEvent.id, evolutionEvent);
-
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    res.json({ 
-      success: true, 
-      data: evolvedStrategy, 
-      events: [evolutionEvent]
+    res.json({
+      success: true,
+      data: savedEvolved,
+      message: 'Evolution completed successfully with real market data, sentiment analysis, and behavioral insights',
     });
   } catch (error: any) {
+    console.error('Evolution synthesis error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 router.get('/evolution/history', async (req, res) => {
   try {
-    const history = Array.from(evolutionEvents.values()).sort(
-      (a, b) => b.created_at.getTime() - a.created_at.getTime()
-    );
+    const { userId } = req.query;
+    
+    let history;
+    if (userId) {
+      // Return user-specific evolution history
+      history = await evolutionModel.findByUser(userId as string);
+      console.log(`📊 Fetched ${history.length} evolution events for user ${userId}`);
+    } else {
+      // Return all evolution events (for admin/debugging)
+      history = await evolutionModel.findAll();
+      console.log(`📊 Fetched ${history.length} evolution events (all users)`);
+    }
+    
     res.json({ success: true, data: history });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -269,11 +293,15 @@ router.get('/evolution/history', async (req, res) => {
 router.get('/trades', async (req, res) => {
   try {
     const { userId } = req.query;
-    let userTrades = Array.from(trades.values());
+    let userTrades;
 
-    if (userId) {
-      userTrades = userTrades.filter((t) => t.user_id === userId);
+    if (userId && typeof userId === 'string') {
+      userTrades = await tradeModel.findByUserId(userId);
+    } else {
+      userTrades = await tradeModel.findAll();
     }
+
+    console.log(`📊 GET /trades - userId: ${userId}, Total trades: ${userTrades.length}`);
 
     res.json({ success: true, data: userTrades });
   } catch (error: any) {
@@ -284,34 +312,30 @@ router.get('/trades', async (req, res) => {
 router.post('/trades', async (req, res) => {
   try {
     const tradeData = req.body;
-    const tradeId = `trade_${Date.now()}`;
 
-    const trade = {
-      id: tradeId,
-      ...tradeData,
-      created_at: new Date(),
-    };
+    // Save trade to database
+    const trade = await tradeModel.create(tradeData);
 
-    // Save trade to in-memory store
-    trades.set(tradeId, trade);
+    console.log(`✅ Trade saved: ${trade.id} (${trade.ticker}, ${trade.action})`);
 
     // Try to ingest into Fastino (optional - don't fail if this errors)
     try {
       await fastinoService.ingestTrade(tradeData.user_id, trade);
-      console.log('✅ Trade ingested to Fastino:', tradeId);
+      console.log('✅ Trade ingested to Fastino:', trade.id);
     } catch (fastinoError: any) {
       console.log('⚠️  Fastino ingestion failed (trade still saved locally):', fastinoError.message);
     }
 
     res.json({ success: true, data: trade });
   } catch (error: any) {
+    console.error('Trade creation error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 router.get('/trades/:id/outcome', async (req, res) => {
   try {
-    const trade = trades.get(req.params.id);
+    const trade = await tradeModel.findById(req.params.id);
 
     if (!trade) {
       return res.status(404).json({ success: false, error: 'Trade not found' });

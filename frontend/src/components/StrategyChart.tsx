@@ -6,6 +6,7 @@ interface StrategyChartProps {
     base: number;
     optimized?: number;
     hybrid?: number;
+    evolved?: number;
   }>;
   title?: string;
 }
@@ -50,6 +51,15 @@ export const StrategyChart = ({ data, title = 'Strategy Performance' }: Strategy
               stroke="#10B981" 
               strokeWidth={2}
               name="Hybrid (Evolved)"
+            />
+          )}
+          {data.some(d => d.evolved && !d.hybrid && !d.optimized) && (
+            <Line 
+              type="monotone" 
+              dataKey="evolved" 
+              stroke="#8B5CF6" 
+              strokeWidth={2}
+              name="Evolved Strategy"
             />
           )}
         </LineChart>

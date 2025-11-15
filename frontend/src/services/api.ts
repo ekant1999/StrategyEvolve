@@ -9,7 +9,7 @@ import type {
   User
 } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -38,8 +38,9 @@ export const authApi = {
 
 // Strategy APIs
 export const strategyApi = {
-  getAll: async (): Promise<ApiResponse<Strategy[]>> => {
-    const response = await api.get('/strategies');
+  getAll: async (userId?: string): Promise<ApiResponse<Strategy[]>> => {
+    const url = userId ? `/strategies?userId=${userId}` : '/strategies';
+    const response = await api.get(url);
     return response.data;
   },
 
@@ -71,8 +72,9 @@ export const evolutionApi = {
     return response.data;
   },
 
-  getHistory: async (): Promise<ApiResponse<EvolutionEvent[]>> => {
-    const response = await api.get('/evolution/history');
+  getHistory: async (userId?: string): Promise<ApiResponse<EvolutionEvent[]>> => {
+    const url = userId ? `/evolution/history?userId=${userId}` : '/evolution/history';
+    const response = await api.get(url);
     return response.data;
   },
 };
