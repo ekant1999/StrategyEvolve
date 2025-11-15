@@ -4,11 +4,12 @@ import type { Strategy, StrategyParameters, StrategyMetrics } from '../services/
 export const strategyModel = {
   async create(strategy: Strategy): Promise<Strategy> {
     const result = await query(
-      `INSERT INTO strategies (id, name, type, parameters, metrics, parent_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO strategies (id, user_id, name, type, parameters, metrics, parent_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [
         strategy.id,
+        strategy.user_id || null,
         strategy.name,
         strategy.type,
         JSON.stringify(strategy.parameters),
@@ -86,6 +87,7 @@ export const strategyModel = {
   mapRowToStrategy(row: any): Strategy {
     return {
       id: row.id,
+      user_id: row.user_id,
       name: row.name,
       type: row.type as 'base' | 'optimized' | 'hybrid',
       parameters: typeof row.parameters === 'string' ? JSON.parse(row.parameters) : row.parameters,

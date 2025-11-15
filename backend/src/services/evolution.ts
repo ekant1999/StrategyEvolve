@@ -4,6 +4,7 @@ import { strategyService, Strategy, StrategyMetrics } from './strategy';
 
 export interface EvolutionEvent {
   id: string;
+  user_id?: string;
   type: 'quantitative' | 'behavioral' | 'hybrid';
   old_strategy_id: string;
   new_strategy_id: string;

@@ -64,12 +64,14 @@ export const initDatabase = async () => {
     await query(`
       CREATE TABLE IF NOT EXISTS strategies (
         id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255),
         name VARCHAR(255) NOT NULL,
         type VARCHAR(50) NOT NULL,
         parameters JSONB NOT NULL,
         metrics JSONB,
         parent_id VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (parent_id) REFERENCES strategies(id) ON DELETE SET NULL
       );
     `);
@@ -94,12 +96,14 @@ export const initDatabase = async () => {
     await query(`
       CREATE TABLE IF NOT EXISTS evolution_events (
         id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255),
         type VARCHAR(50) NOT NULL,
         old_strategy_id VARCHAR(255) NOT NULL,
         new_strategy_id VARCHAR(255) NOT NULL,
         improvement JSONB NOT NULL,
         insights TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         FOREIGN KEY (old_strategy_id) REFERENCES strategies(id) ON DELETE CASCADE,
         FOREIGN KEY (new_strategy_id) REFERENCES strategies(id) ON DELETE CASCADE
       );
@@ -120,6 +124,10 @@ export const initDatabase = async () => {
 
     await query(`
       CREATE INDEX IF NOT EXISTS idx_strategies_type ON strategies(type);
+    `);
+
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_strategies_user_id ON strategies(user_id);
     `);
 
     console.log('✅ Database schema initialized successfully');

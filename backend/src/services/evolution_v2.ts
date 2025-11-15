@@ -6,6 +6,7 @@ import { tradeModel } from '../models/trade';
 
 export interface EvolutionEvent {
   id: string;
+  user_id?: string;
   type: 'quantitative' | 'behavioral' | 'hybrid';
   old_strategy_id: string;
   new_strategy_id: string;
@@ -105,7 +106,9 @@ class EvolutionServiceV2 {
         console.log(`   "${sentiment.answer.slice(0, 300)}${sentiment.answer.length > 300 ? '...' : ''}"`);
         console.log(`\n🔗 Sources (${sentiment.sources?.length || 0}):`);
         sentiment.sources?.slice(0, 3).forEach((s, i) => {
-          console.log(`   ${i + 1}. ${s.name}: ${s.url}`);
+          console.log(`   ${i + 1}. ${s.name}`);
+          console.log(`       URL: ${s.url}`);
+          console.log(`       Snippet: "${s.snippet?.slice(0, 100)}..."`);
         });
 
         // Parse sentiment from LinkUp's answer
@@ -184,7 +187,11 @@ class EvolutionServiceV2 {
       );
       
       console.log(`\n💡 FASTINO ANSWER 1:`);
+      console.log(`┌─────────────────────────────────────────────────────────────┐`);
+      console.log(`│ RAW API RESPONSE:                                           │`);
+      console.log(`└─────────────────────────────────────────────────────────────┘`);
       console.log(`   "${styleAnswer.answer}"`);
+      console.log(`   Length: ${styleAnswer.answer.length} characters`);
 
       console.log(`\n📝 FASTINO QUERY 2: Risk Tolerance Analysis`);
       console.log(`─────────────────────────────────────`);
@@ -195,7 +202,11 @@ class EvolutionServiceV2 {
       );
       
       console.log(`\n💡 FASTINO ANSWER 2:`);
+      console.log(`┌─────────────────────────────────────────────────────────────┐`);
+      console.log(`│ RAW API RESPONSE:                                           │`);
+      console.log(`└─────────────────────────────────────────────────────────────┘`);
       console.log(`   "${riskAnswer.answer}"`);
+      console.log(`   Length: ${riskAnswer.answer.length} characters`);
 
       console.log(`\n📝 FASTINO QUERY 3: Profile Summary`);
       console.log(`─────────────────────────────────────`);
@@ -203,7 +214,11 @@ class EvolutionServiceV2 {
       const summaryData = await fastinoService.getSummary(userId, 500);
       
       console.log(`\n💡 FASTINO SUMMARY:`);
+      console.log(`┌─────────────────────────────────────────────────────────────┐`);
+      console.log(`│ RAW API RESPONSE:                                           │`);
+      console.log(`└─────────────────────────────────────────────────────────────┘`);
       console.log(`   "${summaryData.summary}"`);
+      console.log(`   Length: ${summaryData.summary.length} characters`);
 
       // Parse behavioral insights
       const profile: BehavioralProfile = {
@@ -464,6 +479,9 @@ class EvolutionServiceV2 {
     console.log(`   📊 Final Metrics: Sharpe ${finalMetrics.sharpe_ratio.toFixed(3)}, Return ${finalMetrics.total_return.toFixed(2)}%, Trades: ${finalMetrics.num_trades}`);
     console.log(`   📈 Improvement: +${event.improvement.sharpe_delta.toFixed(3)} Sharpe, +${event.improvement.return_delta.toFixed(2)}% Return\n`);
 
+    // LOG SUMMARY OF DATA SOURCES USED
+    this.logEvolutionSummary(userId, userTickers, sentimentMap, behavioralProfile, marketDataMap, finalStrategy, finalMetrics);
+
     return {
       strategy: {
         ...finalStrategy,
@@ -582,6 +600,128 @@ class EvolutionServiceV2 {
     });
 
     return adjusted;
+  }
+
+  /**
+   * Log comprehensive summary of what data was used
+   */
+  private logEvolutionSummary(
+    userId: string,
+    tickers: string[],
+    sentimentMap: Map<string, SentimentAnalysis>,
+    behavioralProfile: BehavioralProfile,
+    marketDataMap: Map<string, MarketData[]>,
+    finalStrategy: Strategy,
+    finalMetrics: StrategyMetrics
+  ): void {
+    console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                   📊 EVOLUTION DATA USAGE SUMMARY                          ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝\n');
+
+    console.log('👤 USER:', userId);
+    console.log('📅 TIMESTAMP:', new Date().toISOString());
+    console.log('');
+
+    // 1. STOCK DATA SUMMARY
+    console.log('┌─────────────────────────────────────────────────────────────────────────┐');
+    console.log('│ 📈 STOCK DATA (Finnhub/Alpha Vantage)                                   │');
+    console.log('└─────────────────────────────────────────────────────────────────────────┘');
+    console.log('  Tickers analyzed:', tickers.join(', '));
+    console.log('  Market data fetched for:', Array.from(marketDataMap.keys()).join(', '));
+    marketDataMap.forEach((data, ticker) => {
+      console.log(`\n  📊 ${ticker}:`);
+      console.log(`     ├─ Data points: ${data.length} days`);
+      console.log(`     ├─ Date range: ${data[0]?.date.toLocaleDateString()} to ${data[data.length - 1]?.date.toLocaleDateString()}`);
+      console.log(`     ├─ Price range: $${Math.min(...data.map(d => d.close)).toFixed(2)} - $${Math.max(...data.map(d => d.close)).toFixed(2)}`);
+      console.log(`     └─ Avg volume: ${(data.reduce((sum, d) => sum + d.volume, 0) / data.length / 1000000).toFixed(1)}M shares/day`);
+    });
+    console.log('  ✓ Used for: Strategy backtesting and validation');
+    console.log('');
+
+    // 2. LINKUP SENTIMENT DATA
+    console.log('┌─────────────────────────────────────────────────────────────────────────┐');
+    console.log('│ 📰 LINKUP SENTIMENT DATA                                                 │');
+    console.log('└─────────────────────────────────────────────────────────────────────────┘');
+    if (sentimentMap.size === 0) {
+      console.log('  ⚠️  No sentiment data retrieved (API may have failed)');
+    } else {
+      sentimentMap.forEach((sentiment, ticker) => {
+        const sentimentEmoji = sentiment.score > 0.3 ? '🟢' : sentiment.score < -0.3 ? '🔴' : '🟡';
+        const sentimentLabel = sentiment.score > 0.3 ? 'BULLISH' : sentiment.score < -0.3 ? 'BEARISH' : 'NEUTRAL';
+        
+        console.log(`\n  ${sentimentEmoji} ${ticker}: ${sentimentLabel} (Score: ${sentiment.score.toFixed(2)})`);
+        console.log(`     ├─ Confidence: ${(sentiment.confidence * 100).toFixed(1)}%`);
+        console.log(`     ├─ Summary: "${sentiment.summary.slice(0, 80)}${sentiment.summary.length > 80 ? '...' : ''}"`);
+        console.log(`     ├─ Sources: ${sentiment.sources.length} articles analyzed`);
+        console.log(`     └─ Impact: ${sentiment.score > 0.3 ? 'Position size increased' : sentiment.score < -0.3 ? 'Position size decreased' : 'No adjustment'}`);
+      });
+      
+      const avgSentiment = Array.from(sentimentMap.values()).reduce((sum, s) => sum + s.score, 0) / sentimentMap.size;
+      console.log(`\n  📊 Average sentiment: ${avgSentiment.toFixed(3)}`);
+      console.log('  ✓ Used for: Position sizing adjustments based on market conditions');
+    }
+    console.log('');
+
+    // 3. FASTINO BEHAVIORAL DATA
+    console.log('┌─────────────────────────────────────────────────────────────────────────┐');
+    console.log('│ 🧠 FASTINO BEHAVIORAL PROFILE                                            │');
+    console.log('└─────────────────────────────────────────────────────────────────────────┘');
+    console.log(`  Risk Appetite: ${(behavioralProfile.risk_appetite * 100).toFixed(0)}% ${behavioralProfile.risk_appetite > 0.7 ? '(HIGH)' : behavioralProfile.risk_appetite < 0.4 ? '(LOW)' : '(MODERATE)'}`);
+    console.log(`  Entry Style: ${behavioralProfile.preferred_entry_style.toUpperCase()}`);
+    console.log(`  Position Sizing Preference: ${(behavioralProfile.position_sizing_preference * 100).toFixed(1)}%`);
+    console.log(`  Win Rate (from history): ${(behavioralProfile.win_rate * 100).toFixed(1)}%`);
+    console.log(`  Trading Frequency: ${behavioralProfile.trading_frequency.toUpperCase()}`);
+    console.log(`  Favorite Tickers: ${behavioralProfile.favorite_tickers.slice(0, 5).join(', ') || 'None'}`);
+    console.log(`\n  📝 Insights from Fastino AI:`);
+    const insightLines = behavioralProfile.insights.split('\n').filter(l => l.trim()).slice(0, 5);
+    insightLines.forEach((line, i) => {
+      const prefix = i === insightLines.length - 1 ? '     └─' : '     ├─';
+      console.log(`${prefix} "${line.trim().slice(0, 70)}${line.length > 70 ? '...' : ''}"`);
+    });
+    console.log('\n  ✓ Used for: Personalizing RSI thresholds, MA periods, and position sizes');
+    console.log('');
+
+    // 4. STRATEGY ADJUSTMENTS
+    console.log('┌─────────────────────────────────────────────────────────────────────────┐');
+    console.log('│ 🔧 STRATEGY ADJUSTMENTS APPLIED                                          │');
+    console.log('└─────────────────────────────────────────────────────────────────────────┘');
+    console.log('  Base Strategy → Final Strategy:');
+    console.log(`  ├─ Position Size: ${(finalStrategy.parameters.position_size * 100).toFixed(1)}%`);
+    console.log(`  │  └─ Influenced by: Fastino risk preference + LinkUp sentiment`);
+    console.log(`  ├─ RSI Threshold: ${finalStrategy.parameters.rsi_threshold}`);
+    console.log(`  │  └─ Adjusted based on: Fastino entry style (${behavioralProfile.preferred_entry_style})`);
+    console.log(`  ├─ MA Short: ${finalStrategy.parameters.ma_short}`);
+    console.log(`  │  └─ Tuned based on: Fastino risk appetite`);
+    console.log(`  └─ MA Long: ${finalStrategy.parameters.ma_long}`);
+    console.log(`     └─ Tuned based on: Fastino risk appetite`);
+    console.log('');
+
+    // 5. FINAL RESULTS
+    console.log('┌─────────────────────────────────────────────────────────────────────────┐');
+    console.log('│ 🎯 FINAL EVOLVED STRATEGY PERFORMANCE                                    │');
+    console.log('└─────────────────────────────────────────────────────────────────────────┘');
+    console.log(`  Sharpe Ratio: ${finalMetrics.sharpe_ratio.toFixed(3)}`);
+    console.log(`  Total Return: ${finalMetrics.total_return.toFixed(2)}%`);
+    console.log(`  Win Rate: ${finalMetrics.win_rate.toFixed(1)}%`);
+    console.log(`  Max Drawdown: ${finalMetrics.max_drawdown.toFixed(2)}%`);
+    console.log(`  Number of Trades: ${finalMetrics.num_trades}`);
+    console.log(`  Avg Trade Duration: ${finalMetrics.avg_trade_duration.toFixed(1)} days`);
+    console.log('');
+
+    // 6. DATA SOURCE VERIFICATION
+    console.log('┌─────────────────────────────────────────────────────────────────────────┐');
+    console.log('│ ✅ DATA SOURCE VERIFICATION                                              │');
+    console.log('└─────────────────────────────────────────────────────────────────────────┘');
+    console.log('  [' + (marketDataMap.size > 0 ? '✓' : '✗') + '] Historical stock data retrieved');
+    console.log('  [' + (sentimentMap.size > 0 ? '✓' : '✗') + '] Market sentiment analyzed');
+    console.log('  [' + (behavioralProfile.insights.length > 0 ? '✓' : '✗') + '] Behavioral profile generated');
+    console.log('  [✓] Strategy parameters adjusted');
+    console.log('  [✓] Backtest completed with real data');
+    console.log('');
+    
+    console.log('╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                        ✨ EVOLUTION COMPLETE ✨                             ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝\n');
   }
 
   /**

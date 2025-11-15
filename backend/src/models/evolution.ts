@@ -4,11 +4,12 @@ import type { EvolutionEvent } from '../services/evolution';
 export const evolutionModel = {
   async create(event: EvolutionEvent): Promise<EvolutionEvent> {
     const result = await query(
-      `INSERT INTO evolution_events (id, type, old_strategy_id, new_strategy_id, improvement, insights, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO evolution_events (id, user_id, type, old_strategy_id, new_strategy_id, improvement, insights, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [
         event.id,
+        event.user_id || null,
         event.type,
         event.old_strategy_id,
         event.new_strategy_id,
@@ -54,6 +55,7 @@ export const evolutionModel = {
   mapRowToEvent(row: any): EvolutionEvent {
     return {
       id: row.id,
+      user_id: row.user_id,
       type: row.type as 'quantitative' | 'behavioral' | 'hybrid',
       old_strategy_id: row.old_strategy_id,
       new_strategy_id: row.new_strategy_id,

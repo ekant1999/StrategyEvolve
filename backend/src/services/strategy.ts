@@ -20,6 +20,7 @@ export interface StrategyMetrics {
 
 export interface Strategy {
   id: string;
+  user_id?: string;
   name: string;
   type: 'base' | 'optimized' | 'hybrid';
   parameters: StrategyParameters;
