@@ -10,12 +10,14 @@ import { tradeModel } from '../models/trade';
 import { evolutionModel } from '../models/evolution';
 import demoRoutes from './demo';
 import quickDemoRoutes from './quickdemo';
+import raindropRoutes from './raindrop';
 
 const router = express.Router();
 
 // Demo data routes
 router.use('/demo', demoRoutes);
 router.use('/quickdemo', quickDemoRoutes);
+router.use('/raindrop', raindropRoutes);
 
 // ============= AUTH & USER ROUTES =============
 router.post('/auth/register', async (req, res) => {

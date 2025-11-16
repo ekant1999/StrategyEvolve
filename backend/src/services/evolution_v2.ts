@@ -3,6 +3,7 @@ import { linkUpService } from './linkup';
 import { stockDataService, StockPrice } from './stockData';
 import { strategyService, Strategy, StrategyMetrics, MarketData } from './strategy';
 import { tradeModel } from '../models/trade';
+import { raindropService } from './raindrop';
 
 export interface EvolutionEvent {
   id: string;
@@ -391,22 +392,65 @@ class EvolutionServiceV2 {
 
     console.log(`📊 Using ${marketData.length} days of data for ${firstTicker}`);
 
-    for (const variant of variants) {
+    // Try parallel backtesting with Raindrop if available
+    let backtestResults: Array<{ strategy: Strategy; metrics: StrategyMetrics }> = [];
+    
+    if (raindropService.isAvailable()) {
+      console.log('🌧️  Using Raindrop for parallel backtesting...');
       try {
-        // Validate market data before each backtest
-        const validData = marketData.filter(d => 
-          d && typeof d.close === 'number' && !isNaN(d.close) && 
-          typeof d.high === 'number' && typeof d.low === 'number' && 
-          typeof d.open === 'number' && typeof d.volume === 'number'
-        );
+        const backtestTasks = variants.map(variant => ({
+          strategy: variant,
+          marketData: marketData,
+          ticker: firstTicker,
+        }));
         
-        if (validData.length < 30) {
-          console.warn(`   ⚠️  Skipping variant (insufficient valid data: ${validData.length})`);
+        const results = await raindropService.runParallelBacktests(backtestTasks);
+        backtestResults = results.map((result, index) => ({
+          strategy: variants[index],
+          metrics: {
+            sharpe_ratio: result.sharpe,
+            total_return: result.totalReturn,
+            win_rate: result.winRate,
+            max_drawdown: result.maxDrawdown,
+            num_trades: result.trades,
+          } as StrategyMetrics,
+        }));
+        
+        console.log(`✅ Completed ${backtestResults.length} parallel backtests via Raindrop`);
+      } catch (error) {
+        console.warn('⚠️  Raindrop parallel backtesting failed, falling back to sequential:', error);
+      }
+    }
+    
+    // Sequential backtesting (if Raindrop unavailable or failed)
+    if (backtestResults.length === 0) {
+      console.log('📊 Running sequential backtesting...');
+      for (const variant of variants) {
+        try {
+          // Validate market data before each backtest
+          const validData = marketData.filter(d => 
+            d && typeof d.close === 'number' && !isNaN(d.close) && 
+            typeof d.high === 'number' && typeof d.low === 'number' && 
+            typeof d.open === 'number' && typeof d.volume === 'number'
+          );
+          
+          if (validData.length < 30) {
+            console.warn(`   ⚠️  Skipping variant (insufficient valid data: ${validData.length})`);
+            continue;
+          }
+          
+          const metrics = strategyService.backtest(variant, validData);
+          backtestResults.push({ strategy: variant, metrics });
+        } catch (error: any) {
+          console.error(`   ❌ Variant backtest failed:`, error.message);
           continue;
         }
-        
-        const metrics = strategyService.backtest(variant, validData);
-        
+      }
+    }
+
+    // Find best strategy from results
+    for (const { strategy: variant, metrics } of backtestResults) {
+      try {
         console.log(`   Variant tested: Sharpe ${metrics.sharpe_ratio.toFixed(3)}, Return ${metrics.total_return.toFixed(2)}%, Trades: ${metrics.num_trades}`);
         
         // Weight metrics by sentiment and behavioral fit
@@ -415,12 +459,15 @@ class EvolutionServiceV2 {
         
         const adjustedReturn = metrics.total_return + (sentimentBonus * 100);
         
-        // Accept any strategy with trades as better than nothing
+        // Prioritize TOTAL RETURN (70%) over Sharpe (30%) for 10%+ target
+        const currentScore = (metrics.total_return * 0.7) + (metrics.sharpe_ratio * 15);
+        const bestScore = (bestMetrics.total_return * 0.7) + (bestMetrics.sharpe_ratio * 15);
+        
         if (metrics.num_trades > 0 && 
-            (metrics.sharpe_ratio > bestMetrics.sharpe_ratio || bestMetrics.num_trades === 0)) {
+            (currentScore > bestScore || bestMetrics.num_trades === 0)) {
           bestStrategy = variant;
           bestMetrics = metrics;
-          console.log(`✨ New best strategy found: Sharpe ${metrics.sharpe_ratio.toFixed(3)}, Return ${metrics.total_return.toFixed(2)}%, Trades: ${metrics.num_trades}`);
+          console.log(`✨ NEW BEST (Return-Focused): Sharpe ${metrics.sharpe_ratio.toFixed(3)}, Return ${metrics.total_return.toFixed(2)}% (Score: ${currentScore.toFixed(1)}), Trades: ${metrics.num_trades}`);
         }
       } catch (error: any) {
         console.error(`❌ Backtest failed for variant:`, error.message);

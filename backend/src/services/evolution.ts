@@ -65,10 +65,13 @@ class EvolutionService {
       return { ...variant, metrics };
     });
 
-    // Select best performing strategy (by Sharpe ratio)
-    const bestStrategy = results.reduce((best, current) =>
-      current.metrics!.sharpe_ratio > best.metrics!.sharpe_ratio ? current : best
-    );
+    // Select best performing strategy (prioritize TOTAL RETURN for 10%+ target)
+    // Use weighted score: 70% total return + 30% Sharpe ratio
+    const bestStrategy = results.reduce((best, current) => {
+      const currentScore = (current.metrics!.total_return * 0.7) + (current.metrics!.sharpe_ratio * 15);
+      const bestScore = (best.metrics!.total_return * 0.7) + (best.metrics!.sharpe_ratio * 15);
+      return currentScore > bestScore ? current : best;
+    });
 
     const event: EvolutionEvent = {
       id: `evolution_${Date.now()}`,

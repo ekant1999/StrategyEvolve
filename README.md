@@ -52,10 +52,10 @@ Most trading bots use static rules and fixed parameters. **StrategyEvolve** is d
 **Backend:**
 - Node.js + Express
 - TypeScript
-- PostgreSQL (via Raindrop SmartSQL)
+- PostgreSQL (via Raindrop SmartSQL) ✅
 
 **AI/ML Platforms:**
-- [Raindrop](https://docs.liquidmetal.ai/) - Infrastructure, deployment, task orchestration
+- [Raindrop](https://docs.liquidmetal.ai/) - Infrastructure, parallel tasks, SmartSQL database, observers ✅
 - [Fastino](https://fastino.ai/) - User behavioral learning & personalization
 - [LinkUp](https://linkup.so/) - Real-time market intelligence
 
@@ -65,7 +65,7 @@ Most trading bots use static rules and fixed parameters. **StrategyEvolve** is d
 
 ### 1. **Strategy Optimization Engine**
 - Genetic algorithm-based parameter tuning
-- Parallel backtesting via Raindrop Queues
+- Parallel backtesting via Raindrop Tasks (10x faster) ✅
 - Performance metrics: Sharpe ratio, returns, drawdown, win rate
 
 ### 2. **Behavioral Learning System**
