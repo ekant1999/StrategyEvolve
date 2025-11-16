@@ -214,10 +214,9 @@ strategy-evolve/
 ## 📝 License
 
 MIT License
+![WhatsApp Image 2025-11-15 at 16 44 42](https://github.com/user-attachments/assets/dcb4e41a-a7a8-4a13-9f4d-1ad0f7297cf5)
+![WhatsApp Image 2025-11-15 at 16 45 19](https://github.com/user-attachments/assets/08b4be3f-590e-445f-bdc1-04b0fca8e02f)
 
----
-
-## 🎉 Team
 
 Built with ❤️ for the Self-Evolving Agents Hackathon
 
